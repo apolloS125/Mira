@@ -24,7 +24,7 @@ qdrant-client==1.12.0
 sentence-transformers==3.2.1
 
 # ===== Web Search =====
-ddgs==6.3.0
+ddgs
 
 # ===== Database =====
 sqlalchemy==2.0.36
