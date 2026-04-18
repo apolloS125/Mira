@@ -1,7 +1,7 @@
 .PHONY: help setup up down logs shell test lint clean
 
 help:
-	@echo "Mira - Personal AI Companion"
+	@echo "Mira — เลขาส่วนตัว AI (เขียน skills เองได้ + ต่อเครื่องมือใหม่ผ่านแชท)"
 	@echo ""
 	@echo "Commands:"
 	@echo "  make setup     - Copy .env.example to .env"

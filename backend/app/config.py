@@ -26,31 +26,33 @@ class Settings(BaseSettings):
     telegram_webhook_secret: str = ""
 
     # LLM Providers
-    anthropic_api_key: str
-    openai_api_key: str
+    moonshot_api_key: str
+    moonshot_api_base: str = "https://api.moonshot.ai/v1"
+    anthropic_api_key: str = "dummy-not-used-yet"
+    openai_api_key: str = "dummy-not-used-yet"
 
-    # Models
-    primary_model: str = "claude-opus-4-7"
-    router_model: str = "claude-haiku-4-5"
+    # Models (using OpenAI-compatible endpoint; prefix `openai/` + custom base)
+    primary_model: str = "openai/kimi-k2-0905-preview"
+    router_model: str = "openai/kimi-k2-0905-preview"
     embedding_model: str = "text-embedding-3-small"
 
-    # Database
-    database_url: str
+    # Database (optional for Week 1-2)
+    database_url: str = "sqlite+aiosqlite:///./mira.db"
     postgres_user: str = "mira"
     postgres_password: str = "mira_password"
     postgres_db: str = "mira_db"
 
-    # Redis
+    # Redis (optional for Week 1-2)
     redis_url: str = "redis://localhost:6379/0"
 
-    # Qdrant
+    # Qdrant (optional for Week 1-2)
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: Optional[str] = None
     qdrant_collection: str = "mira_memories"
 
-    # Langfuse
-    langfuse_public_key: str
-    langfuse_secret_key: str
+    # Langfuse (optional - set dummy if not using)
+    langfuse_public_key: str = "dummy"
+    langfuse_secret_key: str = "dummy"
     langfuse_host: str = "https://cloud.langfuse.com"
 
     # Optional
@@ -59,6 +61,9 @@ class Settings(BaseSettings):
     # Rate Limiting
     rate_limit_per_minute: int = 30
     rate_limit_per_day: int = 1000
+
+    # Public v1 API keys (comma-separated). Change in production via .env.
+    api_keys: str = "dev-key-change-me"
 
 
 @lru_cache()

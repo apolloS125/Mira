@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Mira Dashboard",
-  description: "An AI that actually remembers you",
+  description: "Personal secretary agent — writes its own skills and connects tools via chat.",
 };
 
 export default function RootLayout({
@@ -20,7 +20,7 @@ export default function RootLayout({
             <Link href="/" className="text-2xl font-semibold tracking-tight">
               🧠 Mira
             </Link>
-            <span className="text-sm text-neutral-500">Personal AI Companion</span>
+            <span className="text-sm text-neutral-500">เลขาส่วนตัว AI</span>
           </header>
           {children}
         </div>

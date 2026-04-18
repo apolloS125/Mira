@@ -4,9 +4,8 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
-    String, DateTime, Text, ForeignKey, Float, Integer, Boolean, JSON
+    String, DateTime, Text, ForeignKey, Float, Integer, Boolean, JSON, Uuid
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -19,12 +18,12 @@ class Memory(Base):
     __tablename__ = "memories"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         primary_key=True,
         default=uuid.uuid4,
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
     )
@@ -43,7 +42,7 @@ class Memory(Base):
         default=1.0,
     )
     source_message_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         ForeignKey("messages.id", ondelete="SET NULL"),
         nullable=True,
     )

@@ -1,13 +1,75 @@
-"""User service - get or create users from Telegram."""
+"""User service — channel-agnostic get-or-create via Identity."""
 import logging
 from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.identity import Identity
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
+
+
+async def get_or_create_user_by_identity(
+    session: AsyncSession,
+    channel: str,
+    external_id: str,
+    display_name: Optional[str] = None,
+    language_code: str = "th",
+    profile: Optional[dict] = None,
+) -> User:
+    """Look up a user by (channel, external_id). Create user + identity if missing."""
+    stmt = select(Identity).where(
+        Identity.channel == channel,
+        Identity.external_id == str(external_id),
+    )
+    identity = (await session.execute(stmt)).scalar_one_or_none()
+
+    if identity is not None:
+        user = (
+            await session.execute(select(User).where(User.id == identity.user_id))
+        ).scalar_one()
+        if display_name and identity.display_name != display_name:
+            identity.display_name = display_name
+        return user
+
+    # Legacy fallback: Telegram users were stored with User.telegram_id.
+    if channel == "telegram":
+        legacy = (
+            await session.execute(
+                select(User).where(User.telegram_id == int(external_id))
+            )
+        ).scalar_one_or_none()
+        if legacy is not None:
+            session.add(Identity(
+                user_id=legacy.id,
+                channel=channel,
+                external_id=str(external_id),
+                display_name=display_name or legacy.first_name,
+                profile=profile or {},
+            ))
+            await session.flush()
+            return legacy
+
+    user = User(
+        telegram_id=int(external_id) if channel == "telegram" else 0,
+        telegram_username=None,
+        first_name=display_name,
+        language_code=language_code,
+    )
+    session.add(user)
+    await session.flush()
+    session.add(Identity(
+        user_id=user.id,
+        channel=channel,
+        external_id=str(external_id),
+        display_name=display_name,
+        profile=profile or {},
+    ))
+    await session.flush()
+    logger.info(f"✨ Created user {user.id} via {channel}:{external_id}")
+    return user
 
 
 async def get_or_create_user(

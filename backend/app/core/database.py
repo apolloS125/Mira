@@ -19,14 +19,14 @@ class Base(DeclarativeBase):
     pass
 
 
-# Create async engine
-engine = create_async_engine(
-    settings.database_url,
-    echo=settings.debug,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
-)
+# SQLite doesn't support pool_size/max_overflow (uses StaticPool/NullPool).
+_is_sqlite = settings.database_url.startswith("sqlite")
+_engine_kwargs: dict = {"echo": settings.debug, "pool_pre_ping": True}
+if not _is_sqlite:
+    _engine_kwargs["pool_size"] = 10
+    _engine_kwargs["max_overflow"] = 20
+
+engine = create_async_engine(settings.database_url, **_engine_kwargs)
 
 # Session factory
 AsyncSessionLocal = async_sessionmaker(
@@ -34,7 +34,6 @@ AsyncSessionLocal = async_sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False,
 )
-
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency to get DB session."""

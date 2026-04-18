@@ -3,8 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, String, DateTime, JSON
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import BigInteger, String, DateTime, JSON, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -17,14 +16,14 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        Uuid,
         primary_key=True,
         default=uuid.uuid4,
     )
-    telegram_id: Mapped[int] = mapped_column(
+    telegram_id: Mapped[Optional[int]] = mapped_column(
         BigInteger,
-        unique=True,
-        nullable=False,
+        unique=False,
+        nullable=True,
         index=True,
     )
     telegram_username: Mapped[Optional[str]] = mapped_column(

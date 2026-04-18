@@ -9,9 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Install Python dependencies to a specific location
 COPY requirements.txt .
-RUN pip install --user --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ===== Stage 2: Runtime =====
 FROM python:3.11-slim
@@ -24,22 +24,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed packages from builder
-COPY --from=builder /root/.local /root/.local
+# Copy installed packages from builder to system location
+COPY --from=builder /install /usr/local
 
-# Make sure scripts in .local are usable
-ENV PATH=/root/.local/bin:$PATH
+# Environment
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Copy application code
 COPY . .
-
-# Create non-root user
-RUN useradd --create-home --shell /bin/bash mira && \
-    chown -R mira:mira /app
-USER mira
 
 # Expose port
 EXPOSE 8000

@@ -1,6 +1,6 @@
-# 🧠 Mira — Your Personal AI Companion
+# 🧠 Mira — เลขาส่วนตัว AI
 
-> *"An AI that actually remembers you"*
+> *"เลขาส่วนตัวที่เขียน skills ใหม่เองได้และต่อเครื่องมือต่างๆ ผ่านแชท."*
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green.svg)](https://fastapi.tiangolo.com)
@@ -8,19 +8,19 @@
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://docker.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Mira is a personal AI assistant accessible via **Telegram**, featuring a sophisticated **hierarchical memory system** that remembers you across sessions. Built with modern LLMOps practices including multi-agent orchestration, observability, and evaluation.
+Mira is a channel-agnostic AI secretary. Chat with her from Telegram, CLI, or any client that can hit the public `/v1/chat` API — and she can **author her own skills** (Python tools persisted to the DB and hot-loaded into the agent) and **connect new HTTP APIs from an OpenAPI spec**, all through conversation. Memory is there to make her a better assistant, not the product in itself.
 
 ---
 
 ## ✨ Key Features
 
-- 🤖 **Telegram-first UX** — Chat naturally via Telegram bot
-- 🧠 **Persistent Memory** — Remembers facts, events, and preferences across sessions
-- 👥 **Multi-Agent System** — Specialized agents (LangGraph)
-- 📸 **Multi-modal** — Handles text and images (Claude Vision)
-- 🔔 **Proactive** — Smart reminders and morning briefings
-- 🔍 **Full Observability** — Langfuse tracing for every interaction
-- ⚡ **Production-ready** — Docker, CI/CD, monitoring, evaluation
+- 🧩 **Self-authoring skills** — Mira proposes Python tools in chat; you confirm; they're saved and callable next turn
+- 🔌 **Connector wizard** — Point her at an OpenAPI URL and she drafts one skill per safe operation
+- 🔧 **Tool-calling agent loop** — LangGraph + OpenAI function-calling, multi-step reasoning
+- 🌐 **Channel-agnostic** — Telegram, CLI, Web, or anything posting to `/v1/chat` (headless by design)
+- 🧠 **Persistent memory** — Qdrant + local multilingual embeddings; used as context, not a gimmick
+- 🔍 **Observability** — Langfuse tracing for every turn
+- ⚡ **Production-ready** — Docker Compose for FastAPI + Postgres + Redis + Qdrant
 
 ---
 

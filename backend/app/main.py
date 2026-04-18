@@ -1,4 +1,5 @@
 """FastAPI application entry point."""
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -6,8 +7,13 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from telegram import Update
 
+from app.api.dashboard import router as dashboard_router
+from app.api.v1 import v1_router
 from app.config import settings
-from app.telegram.bot import telegram_app, setup_bot_handlers
+from app.core.database import init_db
+from app.skills.registry import load_all_skills
+from app.channels.telegram import telegram_app, setup_bot_handlers
+from app import tools as _tools  # noqa: F401 — registers built-in tools on import
 
 # Configure logging
 logging.basicConfig(
@@ -22,6 +28,9 @@ async def lifespan(app: FastAPI):
     """Manage application lifecycle."""
     # Startup
     logger.info("🚀 Starting Mira...")
+    await init_db()
+    loaded = await load_all_skills()
+    logger.info(f"🧩 Loaded {loaded} user-authored skills")
     setup_bot_handlers()
     await telegram_app.initialize()
     await telegram_app.start()
@@ -49,8 +58,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Mira - Personal AI Companion",
-    description="An AI that actually remembers you",
+    title="Mira — เลขาส่วนตัว AI (Personal Secretary Agent)",
+    description="เลขาส่วนตัวที่เขียน skills ใหม่เองได้และต่อเครื่องมือต่างๆ ผ่านแชท",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -63,6 +72,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(dashboard_router)
+app.include_router(v1_router)
 
 
 @app.get("/")
@@ -72,7 +83,7 @@ async def root():
         "name": "Mira",
         "version": "0.1.0",
         "status": "running",
-        "description": "Your Personal AI Companion",
+        "description": "เลขาส่วนตัว AI — เขียน skills ใหม่เองได้และต่อเครื่องมือต่างๆ ผ่านแชท",
     }
 
 
@@ -95,7 +106,8 @@ async def telegram_webhook(request: Request):
     try:
         data = await request.json()
         update = Update.de_json(data, telegram_app.bot)
-        await telegram_app.process_update(update)
+        # Process in background so Telegram gets a fast 200 OK
+        asyncio.create_task(telegram_app.process_update(update))
         return {"ok": True}
     except Exception as e:
         logger.exception(f"Webhook error: {e}")
