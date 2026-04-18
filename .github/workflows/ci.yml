@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -40,6 +40,7 @@ jobs:
         working-directory: backend
         env:
           TELEGRAM_BOT_TOKEN: "dummy_token"
+          MOONSHOT_API_KEY: "dummy_key"
           ANTHROPIC_API_KEY: "dummy_key"
           OPENAI_API_KEY: "dummy_key"
           LANGFUSE_PUBLIC_KEY: "dummy_key"
@@ -53,13 +54,13 @@ jobs:
     needs: lint-and-test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ./backend
           push: false
