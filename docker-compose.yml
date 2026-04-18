@@ -1,0 +1,102 @@
+version: '3.9'
+
+services:
+  # ===== Backend API =====
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mira_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    networks:
+      - mira_network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ===== PostgreSQL (with pgvector) =====
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: mira_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mira}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mira_password}
+      POSTGRES_DB: ${POSTGRES_DB:-mira_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mira}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mira_network
+
+  # ===== Redis (Working Memory + Cache) =====
+  redis:
+    image: redis:7-alpine
+    container_name: mira_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mira_network
+
+  # ===== Qdrant (Vector DB) =====
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: mira_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - mira_network
+
+  # ===== Langfuse (Optional - use cloud by default) =====
+  # Uncomment if you want to self-host Langfuse
+  # langfuse:
+  #   image: langfuse/langfuse:latest
+  #   container_name: mira_langfuse
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     DATABASE_URL: postgresql://mira:mira_password@postgres:5432/langfuse
+  #     NEXTAUTH_SECRET: your_random_secret
+  #     SALT: your_random_salt
+  #     NEXTAUTH_URL: http://localhost:3000
+  #   depends_on:
+  #     - postgres
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+
+networks:
+  mira_network:
+    driver: bridge

@@ -1,0 +1,102 @@
+"""FastAPI application entry point."""
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from telegram import Update
+
+from app.config import settings
+from app.telegram.bot import telegram_app, setup_bot_handlers
+
+# Configure logging
+logging.basicConfig(
+    level=getattr(logging, settings.log_level),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifecycle."""
+    # Startup
+    logger.info("🚀 Starting Mira...")
+    setup_bot_handlers()
+    await telegram_app.initialize()
+    await telegram_app.start()
+
+    # Set webhook if BASE_URL is configured
+    if settings.base_url and not settings.base_url.startswith("http://localhost"):
+        webhook_url = f"{settings.base_url}/webhook/telegram"
+        await telegram_app.bot.set_webhook(
+            url=webhook_url,
+            secret_token=settings.telegram_webhook_secret or None,
+        )
+        logger.info(f"✅ Webhook set to {webhook_url}")
+    else:
+        logger.warning(
+            "⚠️  BASE_URL not set for production. "
+            "Use ngrok for local dev and set webhook manually."
+        )
+
+    yield
+
+    # Shutdown
+    logger.info("👋 Shutting down Mira...")
+    await telegram_app.stop()
+    await telegram_app.shutdown()
+
+
+app = FastAPI(
+    title="Mira - Personal AI Companion",
+    description="An AI that actually remembers you",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure properly in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/")
+async def root():
+    """Root endpoint."""
+    return {
+        "name": "Mira",
+        "version": "0.1.0",
+        "status": "running",
+        "description": "Your Personal AI Companion",
+    }
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint."""
+    return {"status": "healthy"}
+
+
+@app.post("/webhook/telegram")
+async def telegram_webhook(request: Request):
+    """Receive updates from Telegram."""
+    # Verify webhook secret if configured
+    if settings.telegram_webhook_secret:
+        token_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+        if token_header != settings.telegram_webhook_secret:
+            logger.warning("⚠️  Invalid webhook secret")
+            return {"ok": False, "error": "unauthorized"}
+
+    try:
+        data = await request.json()
+        update = Update.de_json(data, telegram_app.bot)
+        await telegram_app.process_update(update)
+        return {"ok": True}
+    except Exception as e:
+        logger.exception(f"Webhook error: {e}")
+        return {"ok": False, "error": str(e)}
