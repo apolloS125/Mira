@@ -12,6 +12,7 @@ from app.api.v1 import v1_router
 from app.config import settings
 from app.core.database import init_db
 from app.skills.registry import load_all_skills
+from app.services.scheduler import get_scheduler, load_all_jobs
 from app.channels.telegram import telegram_app, setup_bot_handlers
 from app import tools as _tools  # noqa: F401 — registers built-in tools on import
 
@@ -31,6 +32,9 @@ async def lifespan(app: FastAPI):
     await init_db()
     loaded = await load_all_skills()
     logger.info(f"🧩 Loaded {loaded} user-authored skills")
+    cron_loaded = await load_all_jobs()
+    logger.info(f"⏰ Loaded {cron_loaded} cron jobs")
+    get_scheduler().start()
     setup_bot_handlers()
     await telegram_app.initialize()
     await telegram_app.start()
@@ -53,6 +57,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("👋 Shutting down Mira...")
+    get_scheduler().shutdown(wait=False)
     await telegram_app.stop()
     await telegram_app.shutdown()
 

@@ -167,6 +167,92 @@ async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_document(document=buf, filename="mira_export.json")
 
 
+# ===== Cron Commands =====
+
+async def cmd_cron_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
+    # Usage: /cron_add <cron_expr> <name> | <prompt>
+    # Example: /cron_add "0 9 * * *" morning | สรุปข่าวเช้า
+    args = " ".join(context.args or "")
+    await update.message.reply_text(
+        "สร้าง cron job ผ่านแชทได้เลยค่ะ 😊 บอกฉันแบบนี้:\n\n"
+        "_\"ตั้ง cron ทุกวัน 9 โมงเช้า ให้สรุปข่าวให้หน่อย\"_\n\n"
+        "หรือจะพิมพ์ตรงๆ ก็ได้ค่ะ:\n"
+        "`/cron_add 0 9 * * * | morning_news | สรุปข่าวเช้าวันนี้`",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+    if not args or "|" not in args:
+        return
+    # Parse: <cron_expr (5 fields)> | <name> | <prompt>
+    try:
+        parts = [p.strip() for p in args.split("|")]
+        if len(parts) < 3:
+            raise ValueError
+        cron_parts = parts[0].split()
+        if len(cron_parts) != 5:
+            raise ValueError("cron must be 5 fields")
+        cron_expr = " ".join(cron_parts)
+        name = parts[1]
+        prompt = parts[2]
+    except Exception:
+        await update.message.reply_text(
+            "รูปแบบไม่ถูกต้องค่ะ ใช้: `/cron_add <นาที ชั่วโมง วัน เดือน วันสัปดาห์> | <ชื่อ> | <prompt>`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    user_id = await _resolve_user(update.effective_user)
+    from app.models.cronjob import CronJob
+    from app.services.scheduler import add_job
+    job = CronJob(user_id=user_id, name=name, prompt=prompt, cron_expr=cron_expr)
+    await add_job(job)
+    await update.message.reply_text(
+        f"✅ ตั้ง cron job *{name}* แล้วค่ะ\n"
+        f"⏰ Schedule: `{cron_expr}`\n"
+        f"📝 Prompt: {prompt}",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def cmd_cron_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
+    user_id = await _resolve_user(update.effective_user)
+    from app.services.scheduler import list_jobs
+    jobs = await list_jobs(user_id)
+    if not jobs:
+        await update.message.reply_text("⏰ ยังไม่มี cron job ค่ะ\nบอกฉันว่าอยากให้ทำอะไรตอนไหน")
+        return
+    lines = ["⏰ *Cron Jobs ของคุณ*\n"]
+    for j in jobs:
+        last = j.last_run_at.strftime("%d/%m %H:%M") if j.last_run_at else "ยังไม่เคยรัน"
+        lines.append(f"• *{j.name}* — `{j.cron_expr}`\n  _{j.prompt[:60]}_\n  ID: `{str(j.id)[:8]}` | รันล่าสุด: {last}\n")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+
+
+async def cmd_cron_del(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
+    if not context.args:
+        await update.message.reply_text("ใช้: `/cron_del <job_id>`\nดู ID ได้จาก /cron_list", parse_mode=ParseMode.MARKDOWN)
+        return
+    job_id_prefix = context.args[0].strip()
+    user_id = await _resolve_user(update.effective_user)
+    from app.services.scheduler import list_jobs, remove_job
+    jobs = await list_jobs(user_id)
+    match = [j for j in jobs if str(j.id).startswith(job_id_prefix)]
+    if not match:
+        await update.message.reply_text(f"ไม่เจอ job ID ขึ้นต้นด้วย `{job_id_prefix}` ค่ะ", parse_mode=ParseMode.MARKDOWN)
+        return
+    job = match[0]
+    await remove_job(job.id)
+    await update.message.reply_text(f"🗑️ ลบ cron job *{job.name}* แล้วค่ะ", parse_mode=ParseMode.MARKDOWN)
+
+
 # ===== Message Handlers =====
 
 async def handle_message(

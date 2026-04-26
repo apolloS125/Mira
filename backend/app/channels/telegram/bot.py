@@ -10,6 +10,9 @@ from telegram.ext import (
 
 from app.config import settings
 from app.channels.telegram.handlers import (
+    cmd_cron_add,
+    cmd_cron_del,
+    cmd_cron_list,
     cmd_export,
     cmd_forget,
     cmd_help,
@@ -37,6 +40,9 @@ def setup_bot_handlers() -> None:
     telegram_app.add_handler(CommandHandler("skills", cmd_skills))
     telegram_app.add_handler(CommandHandler("forget", cmd_forget))
     telegram_app.add_handler(CommandHandler("export", cmd_export))
+    telegram_app.add_handler(CommandHandler("cron_add", cmd_cron_add))
+    telegram_app.add_handler(CommandHandler("cron_list", cmd_cron_list))
+    telegram_app.add_handler(CommandHandler("cron_del", cmd_cron_del))
 
     telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     telegram_app.add_handler(

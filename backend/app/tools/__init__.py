@@ -11,3 +11,4 @@ from app.tools import builtin_time  # noqa: F401
 from app.tools import builtin_http  # noqa: F401
 from app.tools import builtin_skills  # noqa: F401
 from app.tools import builtin_connect  # noqa: F401
+from app.tools import builtin_cron  # noqa: F401
