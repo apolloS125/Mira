@@ -11,30 +11,9 @@ from app.core.database import get_db
 from app.models.message import Message
 from app.models.user import User
 from app.services import memory as memory_svc
+from app.api.schema import UserOut, MessageOut, MemoryOut
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
-
-
-class UserOut(BaseModel):
-    id: uuid.UUID
-    telegram_id: int
-    telegram_username: Optional[str] = None
-    first_name: Optional[str] = None
-    language_code: str
-    created_at: str
-
-
-class MessageOut(BaseModel):
-    id: uuid.UUID
-    role: str
-    content: str
-    created_at: str
-
-
-class MemoryOut(BaseModel):
-    id: str
-    type: str
-    content: str
 
 
 @router.get("/users", response_model=List[UserOut])

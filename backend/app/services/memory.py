@@ -33,28 +33,39 @@ def _get_client() -> AsyncQdrantClient:
     return _client
 
 
-async def ensure_collection() -> None:
-    """Create the Qdrant collection on first use."""
-    global _collection_ready
+_qdrant_available = True  # flipped to False on first connection failure
+
+
+async def ensure_collection() -> bool:
+    """Create the Qdrant collection on first use. Returns False if Qdrant is unavailable."""
+    global _collection_ready, _qdrant_available
     if _collection_ready:
-        return
-    client = _get_client()
-    existing = {c.name for c in (await client.get_collections()).collections}
-    if COLLECTION not in existing:
-        await client.create_collection(
-            collection_name=COLLECTION,
-            vectors_config=qmodels.VectorParams(
-                size=EMBEDDING_DIM,
-                distance=qmodels.Distance.COSINE,
-            ),
-        )
-        await client.create_payload_index(
-            collection_name=COLLECTION,
-            field_name="user_id",
-            field_schema=qmodels.PayloadSchemaType.KEYWORD,
-        )
-        logger.info(f"Created Qdrant collection '{COLLECTION}'")
-    _collection_ready = True
+        return True
+    if not _qdrant_available:
+        return False
+    try:
+        client = _get_client()
+        existing = {c.name for c in (await client.get_collections()).collections}
+        if COLLECTION not in existing:
+            await client.create_collection(
+                collection_name=COLLECTION,
+                vectors_config=qmodels.VectorParams(
+                    size=EMBEDDING_DIM,
+                    distance=qmodels.Distance.COSINE,
+                ),
+            )
+            await client.create_payload_index(
+                collection_name=COLLECTION,
+                field_name="user_id",
+                field_schema=qmodels.PayloadSchemaType.KEYWORD,
+            )
+            logger.info(f"Created Qdrant collection '{COLLECTION}'")
+        _collection_ready = True
+        return True
+    except Exception as e:
+        _qdrant_available = False
+        logger.warning(f"Qdrant unavailable — memory disabled: {e}")
+        return False
 
 
 EXTRACTION_PROMPT = """You extract durable facts about the user from a conversation turn.
@@ -106,8 +117,8 @@ async def add_memory(
     mem_type: str = "semantic",
     metadata: Optional[dict] = None,
 ) -> str:
-    """Store a memory in Qdrant. Returns the point id."""
-    await ensure_collection()
+    if not await ensure_collection():
+        return ""
     point_id = str(uuid.uuid4())
     vector = embed(content)
     payload = {
@@ -128,8 +139,8 @@ async def search_memories(
     query: str,
     limit: int = 5,
 ) -> List[dict]:
-    """Semantic search within a user's memories."""
-    await ensure_collection()
+    if not await ensure_collection():
+        return []
     vector = embed(query)
     results = await _get_client().search(
         collection_name=COLLECTION,
@@ -151,8 +162,8 @@ async def search_memories(
 
 
 async def list_memories(user_id: uuid.UUID, limit: int = 20) -> List[dict]:
-    """List a user's memories (most recent first is not guaranteed — Qdrant scroll order)."""
-    await ensure_collection()
+    if not await ensure_collection():
+        return []
     points, _ = await _get_client().scroll(
         collection_name=COLLECTION,
         scroll_filter=qmodels.Filter(
@@ -171,7 +182,8 @@ async def list_memories(user_id: uuid.UUID, limit: int = 20) -> List[dict]:
 
 
 async def delete_memory(memory_id: str) -> None:
-    """Delete a memory by Qdrant point id."""
+    if not await ensure_collection():
+        return
     await _get_client().delete(
         collection_name=COLLECTION,
         points_selector=qmodels.PointIdsList(points=[memory_id]),
@@ -179,7 +191,6 @@ async def delete_memory(memory_id: str) -> None:
 
 
 async def delete_memories_by_topic(user_id: uuid.UUID, topic: str, limit: int = 20) -> int:
-    """Semantic-search for a topic and delete the top matches. Returns count deleted."""
     matches = await search_memories(user_id, topic, limit=limit)
     ids = [m["id"] for m in matches if m.get("score", 0) >= 0.5]
     if not ids:

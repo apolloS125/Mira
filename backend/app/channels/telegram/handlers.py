@@ -8,6 +8,7 @@ from telegram import Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
 
+from app.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.message import Message
 from app.services import memory as memory_svc
@@ -17,6 +18,18 @@ from app.services.user import get_or_create_user_by_identity
 logger = logging.getLogger(__name__)
 
 CHANNEL = "telegram"
+
+
+def _is_owner(tg_user) -> bool:
+    """Return True if the sender is the configured owner, or if guard is disabled."""
+    if settings.owner_telegram_id == 0:
+        return True
+    return tg_user.id == settings.owner_telegram_id
+
+
+async def _reject(update: Update) -> None:
+    logger.warning(f"Rejected non-owner Telegram user {update.effective_user.id}")
+    await update.message.reply_text("Sorry, this is a private assistant.")
 
 
 async def _resolve_user(tg_user):
@@ -36,6 +49,9 @@ async def _resolve_user(tg_user):
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
+    if not _is_owner(user):
+        await _reject(update)
+        return
     await _resolve_user(user)
     welcome_text = (
         f"สวัสดีค่ะคุณ {user.first_name}! 👋\n\n"
@@ -55,6 +71,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
     help_text = (
         "📚 *คำสั่งของ Mira*\n\n"
         "/start - เริ่มต้น\n"
@@ -71,6 +90,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
     user_id = await _resolve_user(update.effective_user)
     memories = await memory_svc.list_memories(user_id, limit=10)
     if not memories:
@@ -83,6 +105,9 @@ async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
     args = context.args
     if not args:
         await update.message.reply_text("ใช้งาน: /forget <เรื่องที่ต้องการลืม>")
@@ -97,6 +122,9 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def cmd_skills(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
     from app.skills.registry import list_skills
     skills = await list_skills()
     if not skills:
@@ -111,6 +139,9 @@ async def cmd_skills(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
     tg_user = update.effective_user
     user_id = await _resolve_user(tg_user)
     async with AsyncSessionLocal() as session:
@@ -143,6 +174,9 @@ async def handle_message(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
     tg_user = update.effective_user
+    if not _is_owner(tg_user):
+        await _reject(update)
+        return
     message_text = update.message.text
 
     logger.info(f"Message from {tg_user.id} ({tg_user.username}): {message_text[:50]}...")
@@ -172,6 +206,9 @@ async def handle_photo(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
     await context.bot.send_chat_action(
         chat_id=update.effective_chat.id,
         action=ChatAction.TYPING,

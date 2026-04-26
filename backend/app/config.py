@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str
     telegram_webhook_secret: str = ""
+    # Single-owner mode: only this Telegram ID can interact with the bot.
+    # Set to 0 to disable the guard (open to all — not recommended).
+    owner_telegram_id: int = 0
 
     # LLM Providers
     moonshot_api_key: str
@@ -32,8 +35,8 @@ class Settings(BaseSettings):
     openai_api_key: str = "dummy-not-used-yet"
 
     # Models (using OpenAI-compatible endpoint; prefix `openai/` + custom base)
-    primary_model: str = "openai/kimi-k2-0905-preview"
-    router_model: str = "openai/kimi-k2-0905-preview"
+    primary_model: str = "openai/kimi-k2-0711-preview"
+    router_model: str = "openai/kimi-k2-0711-preview"
     embedding_model: str = "text-embedding-3-small"
 
     # Database (optional for Week 1-2)

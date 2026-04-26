@@ -1,13 +1,3 @@
-"""Channel adapter contract.
-
-A channel adapter is anything that can:
-  1. Receive a message from a user on some platform.
-  2. Hand it to `app.services.chat.chat()` with a stable (channel, external_id).
-  3. Deliver the reply back to the user on that platform.
-
-Adapters don't subclass anything — they just implement this shape. The
-Protocol below is documentation + a type-check aid for adapter authors.
-"""
 from __future__ import annotations
 
 from dataclasses import dataclass
