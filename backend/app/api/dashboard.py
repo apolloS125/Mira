@@ -7,13 +7,18 @@ from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import require_api_key
 from app.core.database import get_db
 from app.models.message import Message
 from app.models.user import User
 from app.services import memory as memory_svc
 from app.api.schema import UserOut, MessageOut, MemoryOut
 
-router = APIRouter(prefix="/api", tags=["dashboard"])
+router = APIRouter(
+    prefix="/api",
+    tags=["dashboard"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 @router.get("/users", response_model=List[UserOut])

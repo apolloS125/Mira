@@ -8,77 +8,74 @@
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://docker.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Mira is a channel-agnostic AI secretary. Chat with her from Telegram, CLI, or any client that can hit the public `/v1/chat` API — and she can **author her own skills** (Python tools persisted to the DB and hot-loaded into the agent) and **connect new HTTP APIs from an OpenAPI spec**, all through conversation. Memory is there to make her a better assistant, not the product in itself.
+Mira is a channel-agnostic AI secretary. Chat from Telegram, CLI, or any client hitting `/v1/chat`. She can **author her own Python skills** (persisted to DB, hot-loaded into the agent) and **connect new HTTP APIs from an OpenAPI spec** — all through conversation.
 
 ---
 
 ## ✨ Key Features
 
 - 🧩 **Self-authoring skills** — Mira proposes Python tools in chat; you confirm; they're saved and callable next turn
-- 🔌 **Connector wizard** — Point her at an OpenAPI URL and she drafts one skill per safe operation
-- 🔧 **Tool-calling agent loop** — LangGraph + OpenAI function-calling, multi-step reasoning
-- 🌐 **Channel-agnostic** — Telegram, CLI, Web, or anything posting to `/v1/chat` (headless by design)
-- 🧠 **Persistent memory** — Qdrant + local multilingual embeddings; used as context, not a gimmick
-- 🔍 **Observability** — Langfuse tracing for every turn
-- ⚡ **Production-ready** — Docker Compose for FastAPI + Postgres + Redis + Qdrant
+- 🔌 **Connector wizard** — Point at an OpenAPI URL; she drafts one skill per safe operation
+- ⏰ **Cron job management** — Add, list, and delete scheduled tasks through conversation
+- 🔧 **Tool-calling agent loop** — LangGraph multi-step reasoning via Kimi K2 (OpenAI-compatible)
+- 🌐 **Channel-agnostic** — Telegram, CLI, or anything posting to `/v1/chat`
+- 🧠 **Persistent memory** — Qdrant + local multilingual embeddings; context, not a gimmick
+- 🔒 **Single-owner mode** — Lock bot to one Telegram ID via `OWNER_TELEGRAM_ID`
+- 🔍 **Observability** — Langfuse tracing for every LLM turn
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│        USER INTERFACE                        │
-│           Telegram Bot                       │
-└──────────────────┬──────────────────────────┘
-                   │ webhook
-                   ▼
-┌─────────────────────────────────────────────┐
-│        API GATEWAY (FastAPI)                 │
-└──────────────────┬──────────────────────────┘
-                   │
-    ┌──────────────┼──────────────┐
-    ▼              ▼              ▼
-┌──────────┐  ┌─────────┐  ┌──────────────┐
-│LangGraph │  │ Memory  │  │   Scheduler  │
-│Orchestr. │  │ Service │  │  (Reminders) │
-└─────┬────┘  └────┬────┘  └──────────────┘
-      │           │
-      ▼           ▼
-┌──────────────────────────────┐
-│  PostgreSQL + Qdrant + Redis │
-└──────────────────────────────┘
-              │
-              ▼
-┌──────────────────────────────┐
-│  Langfuse (Observability)    │
-└──────────────────────────────┘
+Client (Telegram / CLI / HTTP)
+  → POST /v1/chat  OR  POST /webhook/telegram
+  → app.services.chat.chat()
+  → app.agents.graph.run_agent()   ← LangGraph tool-calling loop
+  → tools (built-in + user-authored skills)
+  → reply delivered
+  → messages + memories persisted
 ```
+
+**Key layers:**
+
+| Layer | Location | Role |
+|---|---|---|
+| Channel adapters | `app/channels/` | Thin wrappers over `chat()`. Telegram + CLI |
+| Chat service | `app/services/chat.py` | Resolve user, persist message, run agent, persist reply |
+| Agent | `app/agents/graph.py` | LangGraph loop: `load_context → agent_loop → extract_memory` |
+| Tool registry | `app/tools/registry.py` | In-memory store for built-in + user-authored tools |
+| Skills registry | `app/skills/registry.py` | Compiles DB-persisted Python skills via sandboxed `exec()` |
+| Scheduler | `app/services/scheduler.py` | APScheduler-backed cron job runner |
+| Memory service | `app/services/memory.py` | Qdrant semantic search + LLM extraction |
+| Public API | `app/api/v1/` | `/v1/chat`, `/v1/skills`, `/v1/tools` — gated by `X-API-Key` |
+| Dashboard API | `app/api/dashboard.py` | Read-only REST views at `/api/*` |
 
 ---
 
 ## 🧠 Memory System
 
-Mira's memory is organized hierarchically, inspired by human cognition:
-
-| Memory Type | Storage | Purpose | Example |
-|-------------|---------|---------|---------|
-| **Working** | Redis | Current context (1hr TTL) | Current conversation |
-| **Short-term** | PostgreSQL | Recent messages (7 days) | Yesterday's chat |
-| **Semantic** | Qdrant | Facts about user | "Allergic to shrimp" |
-| **Episodic** | Qdrant | Events & experiences | "Traveled to Japan last week" |
-| **Procedural** | Qdrant | Preferences & patterns | "Prefers short responses" |
+| Type | Storage | TTL | Purpose |
+|------|---------|-----|---------|
+| **Working** | Redis | 1 hr | Current conversation context |
+| **Short-term** | PostgreSQL | 7 days | Recent messages |
+| **Semantic** | Qdrant | Permanent | Facts about user |
+| **Episodic** | Qdrant | Permanent | Events & experiences |
+| **Procedural** | Qdrant | Permanent | Preferences & patterns |
 
 ---
 
 ## 🛠️ Tech Stack
 
-**Backend:** FastAPI, LangGraph, LiteLLM, Mem0, SQLAlchemy
-**Databases:** PostgreSQL (pgvector), Qdrant, Redis
-**AI Models:** Claude Opus 4.7 (reasoning), Claude Haiku 4.5 (routing)
-**Observability:** Langfuse
-**DevOps:** Docker, Docker Compose, GitHub Actions
-**Deployment:** Railway / Fly.io
+| Layer | Tech |
+|---|---|
+| **Backend** | FastAPI, LangGraph, LiteLLM, SQLAlchemy |
+| **LLM** | Kimi K2 via Moonshot AI (OpenAI-compatible endpoint) |
+| **Databases** | PostgreSQL (pgvector), Qdrant, Redis |
+| **Embeddings** | OpenAI `text-embedding-3-small` |
+| **Scheduler** | APScheduler |
+| **Observability** | Langfuse |
+| **DevOps** | Docker, Docker Compose |
 
 ---
 
@@ -87,41 +84,48 @@ Mira's memory is organized hierarchically, inspired by human cognition:
 ### Prerequisites
 
 - Docker & Docker Compose
-- Python 3.11+ (for local dev)
+- Python 3.11+ (for local dev without Docker)
 - Telegram Bot Token ([from @BotFather](https://t.me/botfather))
-- Anthropic API Key ([console.anthropic.com](https://console.anthropic.com))
-- OpenAI API Key (for embeddings)
-- Langfuse account ([cloud.langfuse.com](https://cloud.langfuse.com))
+- Moonshot API Key (for Kimi K2)
+- Langfuse account ([cloud.langfuse.com](https://cloud.langfuse.com)) — optional
 
 ### Setup
 
-1. **Clone the repository**
+1. **Clone**
    ```bash
    git clone https://github.com/apolloS125/Mira.git
    cd Mira
    ```
 
-2. **Configure environment**
+2. **Configure**
    ```bash
    cp .env.example .env
-   # Edit .env with your API keys
+   # Fill in TELEGRAM_BOT_TOKEN, MOONSHOT_API_KEY, OWNER_TELEGRAM_ID
    ```
 
-3. **Start with Docker**
+3. **Local dev (SQLite, no Docker)**
    ```bash
-   docker-compose up -d
+   cd backend
+   pip install -r requirements.txt
+   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
    ```
 
-4. **Set up Telegram webhook** (use ngrok for local dev)
+4. **Full stack via Docker**
+   ```bash
+   make up        # docker-compose up -d
+   make logs      # tail backend logs
+   make down      # stop
+   ```
+
+5. **Telegram webhook** (ngrok for local dev)
    ```bash
    ngrok http 8000
-   # Copy the https URL
    curl -F "url=https://YOUR_NGROK_URL/webhook/telegram" \
         https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook
    ```
+   Or set `BASE_URL` in `.env` — Mira sets the webhook automatically on startup.
 
-5. **Talk to your bot!**
-   Open Telegram, find your bot, send `/start`
+6. **Talk to your bot** — open Telegram, find your bot, send `/start`
 
 ---
 
@@ -131,69 +135,73 @@ Mira's memory is organized hierarchically, inspired by human cognition:
 mira/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py              # FastAPI entry point
+│   │   ├── main.py              # FastAPI entry point + lifespan
 │   │   ├── config.py            # Settings (Pydantic)
-│   │   ├── telegram/            # Telegram bot handlers
-│   │   ├── agents/              # LangGraph agents
-│   │   ├── services/            # Business logic
-│   │   ├── models/              # SQLAlchemy models
-│   │   ├── api/                 # REST endpoints
-│   │   ├── jobs/                # Scheduled tasks
-│   │   └── core/                # Core utilities
-│   ├── tests/                   # Pytest
-│   ├── alembic/                 # DB migrations
+│   │   ├── channels/            # Telegram + CLI adapters
+│   │   ├── agents/              # LangGraph agent loop
+│   │   ├── tools/               # Built-in tools (web, http, skills, cron, time)
+│   │   ├── skills/              # User-authored skill registry
+│   │   ├── services/            # chat, memory, user, scheduler, embeddings
+│   │   ├── models/              # SQLAlchemy ORM (User, Identity, Message, Memory, Skill, CronJob)
+│   │   ├── api/                 # REST endpoints (v1 + dashboard)
+│   │   ├── jobs/                # Scheduled task helpers
+│   │   └── core/                # DB init, Redis client
+│   ├── tests/
 │   ├── Dockerfile
 │   └── requirements.txt
-├── docker-compose.yml           # Full stack
-├── .env.example                 # Environment template
-├── .github/workflows/           # CI/CD
-└── docs/                        # Documentation
+├── frontend/                    # Next.js 15 dashboard (Bun + Tailwind)
+├── docker-compose.yml
+└── .env.example
 ```
+
+---
+
+## ⚙️ Key Config Variables
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PRIMARY_MODEL` | `openai/kimi-k2-0711-preview` | LiteLLM model string |
+| `MOONSHOT_API_KEY` | — | Required for Kimi K2 |
+| `MOONSHOT_API_BASE` | `https://api.moonshot.ai/v1` | OpenAI-compatible base |
+| `TELEGRAM_BOT_TOKEN` | — | Required |
+| `OWNER_TELEGRAM_ID` | `0` | Set to your Telegram ID; `0` = open to all |
+| `DATABASE_URL` | SQLite (local) | Switch to `postgresql+asyncpg://...` for Docker |
+| `REDIS_URL` | `redis://localhost:6379/0` | |
+| `QDRANT_URL` | `http://localhost:6333` | |
+| `BASE_URL` | `http://localhost:8000` | Set to public URL to enable auto-webhook |
+| `API_KEYS` | — | Comma-separated keys for `/v1/*` (`X-API-Key` header) |
+| `LANGFUSE_PUBLIC_KEY` | `dummy` | Optional tracing |
+
+---
+
+## 🔒 Security
+
+- API keys in environment variables only — never committed
+- Single-owner mode via `OWNER_TELEGRAM_ID`
+- Skill execution sandboxed (`exec()` with limited builtins + allowlisted imports)
+- `/v1/*` API gated by `X-API-Key`
 
 ---
 
 ## 📊 Observability
 
-Every LLM call is traced via Langfuse:
-
-- Token usage & costs per user
-- Latency breakdown per agent
+LLM calls traced via Langfuse (`@observe` on `chat_with_llm`):
+- Token usage & cost per turn
+- Latency per agent step
 - Memory retrieval performance
-- Error tracking
 
-Access dashboard at [cloud.langfuse.com](https://cloud.langfuse.com)
-
----
-
-## 🔒 Privacy & Security
-
-- ✅ API keys in environment variables (never committed)
-- ✅ User data isolated per `telegram_id`
-- ✅ `/export` command for data portability (GDPR)
-- ✅ `/forget` command for memory deletion
-- ✅ PII detection before memory storage
-
----
-
-## 🗺️ Roadmap
-
-- [x] Week 1-2: Foundation (FastAPI + Telegram + LLM)
-- [ ] Week 3-5: Memory system (Qdrant + Mem0)
-- [ ] Week 6-7: Multi-agent orchestration (LangGraph)
-- [ ] Week 8: Web dashboard (Next.js)
-- [ ] Week 9-10: Polish + Deploy + Documentation
+Set `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` to enable. Defaults to `dummy` (disabled).
 
 ---
 
 ## 📝 License
 
-MIT License — see [LICENSE](LICENSE) file
+MIT — see [LICENSE](LICENSE)
 
 ---
 
 ## 🙏 Acknowledgments
 
-- [Anthropic](https://anthropic.com) — Claude models
+- [Moonshot AI](https://moonshot.ai) — Kimi K2 model
 - [LangChain](https://langchain.com) — LangGraph framework
-- [Mem0](https://mem0.ai) — Memory layer inspiration
 - [Langfuse](https://langfuse.com) — Observability platform

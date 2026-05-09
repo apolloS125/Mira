@@ -75,14 +75,21 @@ Client (Telegram / CLI / HTTP)
 | Tool registry | `app/tools/registry.py` | In-memory store for built-in and user-authored tools |
 | Skills registry | `app/skills/registry.py` | Compiles DB-persisted Python skills via sandboxed `exec()` (limited builtins, allow-listed imports); hot-reloaded on startup |
 | Memory service | `app/services/memory.py` | Qdrant semantic search + LLM extraction |
+| Cron scheduler | `app/services/scheduler.py` | APScheduler (Asia/Bangkok TZ) loads `CronJob` rows on startup, fires `run_agent()` + sends reply via Telegram to `OWNER_TELEGRAM_ID` |
 | Public API | `app/api/v1/` | `/v1/chat`, `/v1/skills`, `/v1/tools` — gated by `X-API-Key` via `app/api/auth.py` |
 | Dashboard API | `app/api/dashboard.py` | Read-only REST views over users/messages/memories at `/api/*` |
 
 **Infrastructure (docker-compose):**
 - FastAPI — port 8000 (API + Telegram webhook)
-- PostgreSQL + pgvector — port 5432 (users, conversations, messages, memories, skills)
+- PostgreSQL + pgvector — port 5432 (users, conversations, messages, memories, skills, cronjobs)
 - Redis — port 6379 (working memory, caching)
 - Qdrant — port 6333 (vector DB for semantic/episodic/procedural memory)
+
+**Skill authoring flow:** The agent has two paths to save a skill:
+1. `create_skill` — for trivial skills touching no user data/accounts
+2. `propose_skill` → show code to user → `confirm_skill` — required when skill touches accounts or external APIs. Drafts live in-memory (`_drafts` dict in `builtin_skills.py`) and are lost on restart.
+
+Allowed imports inside user-authored skills: `asyncio, datetime, json, math, re, statistics, textwrap, typing, urllib.parse, zoneinfo, httpx`.
 
 **`app/telegram/` vs `app/channels/telegram/`:** There is a legacy `app/telegram/` directory. The active Telegram integration lives in `app/channels/telegram/` (bot.py + handlers.py). The legacy path can be ignored.
 
@@ -95,12 +102,18 @@ Client (Telegram / CLI / HTTP)
 All settings are in `app/config.py` (Pydantic Settings). Copy `.env.example → .env`.
 
 Key variables:
-- `PRIMARY_MODEL` — LiteLLM model string, currently `openai/kimi-k2-0905-preview`
+- `PRIMARY_MODEL` — LiteLLM model string, currently `openai/kimi-k2-0711-preview` (uses `MOONSHOT_API_KEY` + `MOONSHOT_API_BASE`)
 - `DATABASE_URL` — defaults to SQLite for local dev; switch to `postgresql+asyncpg://...` for Docker
 - `TELEGRAM_BOT_TOKEN` — required
+- `OWNER_TELEGRAM_ID` — single-owner guard; set to 0 to disable (open to all)
 - `BASE_URL` — set to public ngrok/production URL to enable webhook mode; omit for polling
 - `API_KEYS` — comma-separated keys for the public `/v1/*` API (`X-API-Key` header)
 - `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` — set to enable LLM tracing (defaults to `"dummy"`)
+- `TAVILY_API_KEY` — optional; enables `web_search` tool
+
+## Agent loop details
+
+`app/agents/graph.py` — `MAX_STEPS = 6`. Each step: LLM call → if `tool_calls` execute tools → feed results back → repeat. Returns Thai fallback string on max-steps exceeded. All LLM calls go via `litellm.acompletion` with `api_base=MOONSHOT_API_BASE`.
 
 ## Testing
 

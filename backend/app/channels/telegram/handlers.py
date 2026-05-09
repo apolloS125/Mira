@@ -21,9 +21,13 @@ CHANNEL = "telegram"
 
 
 def _is_owner(tg_user) -> bool:
-    """Return True if the sender is the configured owner, or if guard is disabled."""
-    if settings.owner_telegram_id == 0:
-        return True
+    """Return True only if sender matches configured owner. Fail closed if unset."""
+    if not settings.owner_telegram_id:
+        logger.error(
+            "OWNER_TELEGRAM_ID not configured — rejecting all Telegram users. "
+            "Set OWNER_TELEGRAM_ID in .env to your Telegram user ID."
+        )
+        return False
     return tg_user.id == settings.owner_telegram_id
 
 

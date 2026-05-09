@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str
     telegram_webhook_secret: str = ""
     # Single-owner mode: only this Telegram ID can interact with the bot.
-    # Set to 0 to disable the guard (open to all — not recommended).
+    # Default 0 = fail closed (rejects everyone). Must be set explicitly to enable bot.
     owner_telegram_id: int = 0
 
     # LLM Providers
@@ -67,6 +67,9 @@ class Settings(BaseSettings):
 
     # Public v1 API keys (comma-separated). Change in production via .env.
     api_keys: str = "dev-key-change-me"
+
+    # CORS allowed origins (comma-separated). Wildcard "*" forbidden when credentials=True.
+    cors_origins: str = "http://localhost:3000"
 
 
 @lru_cache()
