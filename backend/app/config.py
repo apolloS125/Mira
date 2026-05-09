@@ -31,19 +31,20 @@ class Settings(BaseSettings):
     # LLM Providers
     moonshot_api_key: str
     moonshot_api_base: str = "https://api.moonshot.ai/v1"
+    # If set, send LLM requests through the local LiteLLM proxy using this key
+    # (proxy master key or virtual key) instead of moonshot_api_key. Leave empty
+    # to call Moonshot directly.
+    litellm_proxy_key: str = ""
     anthropic_api_key: str = "dummy-not-used-yet"
     openai_api_key: str = "dummy-not-used-yet"
 
     # Models (using OpenAI-compatible endpoint; prefix `openai/` + custom base)
-    primary_model: str = "openai/kimi-k2-0711-preview"
-    router_model: str = "openai/kimi-k2-0711-preview"
+    primary_model: str = "openai/kimi-k2.5"
+    router_model: str = "openai/kimi-k2.5"
     embedding_model: str = "text-embedding-3-small"
 
-    # Database (optional for Week 1-2)
+    # Database
     database_url: str = "sqlite+aiosqlite:///./mira.db"
-    postgres_user: str = "mira"
-    postgres_password: str = "mira_password"
-    postgres_db: str = "mira_db"
 
     # Redis (optional for Week 1-2)
     redis_url: str = "redis://localhost:6379/0"
@@ -65,11 +66,10 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 30
     rate_limit_per_day: int = 1000
 
-    # Public v1 API keys (comma-separated). Change in production via .env.
-    api_keys: str = "dev-key-change-me"
-
-    # CORS allowed origins (comma-separated). Wildcard "*" forbidden when credentials=True.
-    cors_origins: str = "http://localhost:3000"
+    # Skill sandbox
+    mira_secret_key: str = ""  # Fernet base64 key for secrets vault. Required at startup.
+    skill_run_timeout_sec: int = 15
+    skill_max_output_bytes: int = 32_768
 
 
 @lru_cache()

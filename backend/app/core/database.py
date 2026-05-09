@@ -50,7 +50,15 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     """Initialize database (for testing/dev)."""
+    # Import models so Base.metadata sees all tables before create_all.
+    from app import models  # noqa: F401
+
     async with engine.begin() as conn:
+        if _is_sqlite:
+            from sqlalchemy import text
+            await conn.execute(text("PRAGMA journal_mode=WAL"))
+            await conn.execute(text("PRAGMA synchronous=NORMAL"))
+            await conn.execute(text("PRAGMA foreign_keys=ON"))
         await conn.run_sync(Base.metadata.create_all)
     logger.info("✅ Database initialized")
 

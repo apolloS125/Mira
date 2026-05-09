@@ -1,13 +1,3 @@
-"""LangGraph orchestrator — tool-calling agent loop.
-
-Flow:
-  load_context → agent_loop (chat ↔ tools) → extract_memory
-
-agent_loop runs an OpenAI-style tool-calling loop:
-  - send messages + tool schemas to LLM
-  - if LLM returns tool_calls, execute each, feed results back
-  - repeat until LLM returns a final text reply, or MAX_STEPS exceeded
-"""
 import json
 import logging
 import uuid
@@ -19,6 +9,7 @@ from litellm import acompletion
 
 from app.config import settings
 from app.services import memory as memory_svc
+from app.services import secrets as secrets_svc
 from app.services import working_memory as wm
 from app.tools import registry as tool_registry
 
@@ -37,11 +28,15 @@ Personality:
 You have access to:
 - Long-term memories about the user (below, if any)
 - Recent conversation history
-- A set of callable tools (web_search, time_now, http_request, propose_skill, confirm_skill, create_skill, list_skills, connect_http_api, plus user-authored skills)
+- A set of callable tools (web_search, time_now, http_request, create_skill, propose_skill, test_skill, list_skills, list_drafts, show_skill_code, disable_skill, connect_http_api, schedule_job, plus user-authored skills)
 
 When the user asks for something that would benefit from a reusable capability (a recurring workflow, a specific API they want to use often):
   1. If it's trivial and touches no user data/accounts, call `create_skill` directly.
-  2. Otherwise call `propose_skill` first, show the user the code in your reply, ask them to confirm, then call `confirm_skill` once they agree.
+  2. Otherwise call `propose_skill` (saves a draft). Then summarize what the skill does and tell the user to run /drafts in Telegram to review and approve. You CANNOT confirm drafts yourself — only the user's explicit Telegram approval activates a draft. This is a security measure.
+
+You can dry-run any draft via `test_skill` to validate it before asking for approval.
+
+Skills can call `secrets.get('NAME')` to read encrypted user secrets. The user manages secrets with /secret_add NAME in Telegram.
 
 When the user wants to connect a new HTTP/REST API, prefer `connect_http_api` — it introspects an OpenAPI spec and drafts skills automatically.
 
@@ -92,7 +87,7 @@ async def node_agent_loop(state: AgentState) -> AgentState:
             max_tokens=1200,
             temperature=0.5,
             api_base=settings.moonshot_api_base,
-            api_key=settings.moonshot_api_key,
+            api_key=settings.litellm_proxy_key or settings.moonshot_api_key,
             metadata={
                 "user_id": str(state["user_id"]),
                 "langfuse_tags": ["agent_loop"],
@@ -197,6 +192,10 @@ def get_graph():
 
 @observe(name="agent_run")
 async def run_agent(user_id: uuid.UUID, user_message: str) -> str:
-    graph = get_graph()
-    result = await graph.ainvoke({"user_id": user_id, "user_message": user_message})
+    token = secrets_svc.set_current_user(user_id)
+    try:
+        graph = get_graph()
+        result = await graph.ainvoke({"user_id": user_id, "user_message": user_message})
+    finally:
+        secrets_svc.reset_current_user(token)
     return result.get("reply", "ขออภัยค่ะ ลองใหม่อีกครั้งนะคะ")

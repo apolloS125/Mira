@@ -9,13 +9,17 @@ This is still not a strong sandbox. Production should run skills in a separate
 process/container with seccomp or use RestrictedPython.
 """
 import ast
+import asyncio
+import json
 import logging
-from typing import List
+from typing import Any, Callable, List
 
 from sqlalchemy import select
 
+from app.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.skill import Skill
+from app.services.secrets import ambient_secrets
 from app.tools.base import Tool
 from app.tools.registry import register_tool, unregister
 
@@ -110,27 +114,68 @@ def compile_skill(skill: Skill) -> Tool:
             "sorted": sorted, "enumerate": enumerate, "zip": zip,
             "print": print, "isinstance": isinstance, "any": any, "all": all,
             "Exception": Exception, "ValueError": ValueError, "TypeError": TypeError,
-        }
+        },
+        # Per-user encrypted secrets, scoped via ContextVar at invoke time.
+        "secrets": ambient_secrets,
     }
     exec(compile(tree, f"<skill:{skill.name}>", "exec"), namespace)  # noqa: S102
     run = namespace.get("run")
     if run is None or not callable(run):
         raise ValueError(f"Skill '{skill.name}' must define async def run(args)")
 
+    guarded = _guard_run(run, skill.name)
+
     return Tool(
         name=skill.name,
         description=skill.description,
         parameters=skill.parameters or {"type": "object", "properties": {}},
-        run=run,
+        run=guarded,
         source="skill",
     )
 
 
+def _guard_run(run: Callable, skill_name: str) -> Callable:
+    """Wrap a skill's run() with timeout, output cap, and error containment.
+
+    Returns a structured {ok, result|error} dict so a broken skill never crashes
+    the agent loop. Note: asyncio.wait_for cannot kill pure-CPU loops — this is
+    a soft guard. Hard isolation would require a subprocess.
+    """
+    timeout = settings.skill_run_timeout_sec
+    max_bytes = settings.skill_max_output_bytes
+
+    async def guarded(args: Any) -> Any:
+        try:
+            coro = run(args)
+            if not asyncio.iscoroutine(coro):
+                return {"ok": False, "error": f"skill '{skill_name}' run() must be async"}
+            result = await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            return {"ok": False, "error": f"skill '{skill_name}' timed out after {timeout}s"}
+        except Exception as e:
+            logger.warning(f"Skill '{skill_name}' raised: {e}")
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+        try:
+            payload = json.dumps(result, default=str)
+        except Exception:
+            payload = str(result)
+        if len(payload.encode("utf-8")) > max_bytes:
+            return {
+                "ok": True,
+                "truncated": True,
+                "result": payload[:max_bytes] + "…[truncated]",
+            }
+        return result
+
+    return guarded
+
+
 async def load_all_skills() -> int:
-    """Load all enabled skills from DB and register them. Returns count loaded."""
+    """Load all active skills from DB and register them. Drafts are skipped."""
     async with AsyncSessionLocal() as session:
         rows = (await session.execute(
-            select(Skill).where(Skill.enabled == True)  # noqa: E712
+            select(Skill).where(Skill.enabled == True, Skill.status == "active")  # noqa: E712
         )).scalars().all()
 
     loaded = 0
@@ -205,6 +250,108 @@ async def disable_skill(name: str) -> bool:
         if skill is None:
             return False
         skill.enabled = False
+        skill.status = "disabled"
         await session.commit()
     unregister(name)
     return True
+
+
+async def save_draft(
+    name: str,
+    description: str,
+    parameters: dict,
+    code: str,
+    author: str = "agent",
+    confirmation_required: bool = False,
+) -> Skill:
+    """Persist a skill as a draft (not registered as a tool)."""
+    # Validate AST early so we don't store a broken draft.
+    _validate_skill_ast(code, name)
+
+    async with AsyncSessionLocal() as session:
+        existing = (await session.execute(
+            select(Skill).where(Skill.name == name)
+        )).scalar_one_or_none()
+
+        if existing is None:
+            skill = Skill(
+                name=name,
+                description=description,
+                parameters=parameters,
+                code=code,
+                author=author,
+                enabled=False,
+                status="draft",
+                confirmation_required=confirmation_required,
+            )
+            session.add(skill)
+        else:
+            existing.description = description
+            existing.parameters = parameters
+            existing.code = code
+            existing.status = "draft"
+            existing.enabled = False
+            existing.confirmation_required = confirmation_required
+            skill = existing
+        await session.commit()
+        await session.refresh(skill)
+    return skill
+
+
+async def confirm_draft(name: str) -> Skill | None:
+    """Promote a draft to active and hot-register it."""
+    async with AsyncSessionLocal() as session:
+        skill = (await session.execute(
+            select(Skill).where(Skill.name == name)
+        )).scalar_one_or_none()
+        if skill is None or skill.status != "draft":
+            return None
+        skill.status = "active"
+        skill.enabled = True
+        skill.version = (skill.version or 1) + 1
+        await session.commit()
+        await session.refresh(skill)
+
+    unregister(name)
+    register_tool(compile_skill(skill))
+    return skill
+
+
+async def list_drafts() -> List[dict]:
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(
+            select(Skill).where(Skill.status == "draft")
+        )).scalars().all()
+    return [
+        {
+            "name": s.name,
+            "description": s.description,
+            "confirmation_required": s.confirmation_required,
+            "version": s.version,
+        }
+        for s in rows
+    ]
+
+
+async def discard_draft(name: str) -> bool:
+    async with AsyncSessionLocal() as session:
+        skill = (await session.execute(
+            select(Skill).where(Skill.name == name, Skill.status == "draft")
+        )).scalar_one_or_none()
+        if skill is None:
+            return False
+        await session.delete(skill)
+        await session.commit()
+    return True
+
+
+async def get_skill(name: str) -> Skill | None:
+    async with AsyncSessionLocal() as session:
+        return (await session.execute(
+            select(Skill).where(Skill.name == name)
+        )).scalar_one_or_none()
+
+
+def compile_isolated(skill: Skill) -> Callable:
+    """Compile a skill but do not register. Returns guarded run() for dry-run testing."""
+    return compile_skill(skill).run

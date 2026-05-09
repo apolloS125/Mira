@@ -100,7 +100,7 @@ async def extract_memories(user_message: str, assistant_reply: str) -> List[dict
             temperature=0.2,
             response_format={"type": "json_object"},
             api_base=settings.moonshot_api_base,
-            api_key=settings.moonshot_api_key,
+            api_key=settings.litellm_proxy_key or settings.moonshot_api_key,
         )
         content = resp.choices[0].message.content or "{}"
         data = json.loads(content)

@@ -21,6 +21,10 @@ class Skill(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     author: Mapped[str] = mapped_column(String(32), default="agent")  # "agent" | "user"
     version: Mapped[int] = mapped_column(default=1)
+    # status: "draft" | "active" | "disabled" | "archived". Drafts are saved but
+    # not registered as tools; require explicit user approval to promote.
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)
+    confirmation_required: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

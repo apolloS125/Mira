@@ -3,20 +3,28 @@ import logging
 
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     MessageHandler,
     filters,
 )
 
 from app.config import settings
+from app.channels.telegram.callbacks import callback_router
 from app.channels.telegram.handlers import (
     cmd_cron_add,
     cmd_cron_del,
     cmd_cron_list,
+    cmd_drafts,
     cmd_export,
     cmd_forget,
     cmd_help,
     cmd_memory,
+    cmd_secret_add,
+    cmd_secret_del,
+    cmd_secret_list,
+    cmd_skill,
+    cmd_skill_test,
     cmd_skills,
     cmd_start,
     handle_message,
@@ -37,12 +45,27 @@ def setup_bot_handlers() -> None:
     telegram_app.add_handler(CommandHandler("start", cmd_start))
     telegram_app.add_handler(CommandHandler("help", cmd_help))
     telegram_app.add_handler(CommandHandler("memory", cmd_memory))
-    telegram_app.add_handler(CommandHandler("skills", cmd_skills))
     telegram_app.add_handler(CommandHandler("forget", cmd_forget))
     telegram_app.add_handler(CommandHandler("export", cmd_export))
+
+    # Skills + drafts
+    telegram_app.add_handler(CommandHandler("skills", cmd_skills))
+    telegram_app.add_handler(CommandHandler("skill", cmd_skill))
+    telegram_app.add_handler(CommandHandler("skill_test", cmd_skill_test))
+    telegram_app.add_handler(CommandHandler("drafts", cmd_drafts))
+
+    # Secrets vault
+    telegram_app.add_handler(CommandHandler("secret_add", cmd_secret_add))
+    telegram_app.add_handler(CommandHandler("secret_list", cmd_secret_list))
+    telegram_app.add_handler(CommandHandler("secret_del", cmd_secret_del))
+
+    # Cron
     telegram_app.add_handler(CommandHandler("cron_add", cmd_cron_add))
     telegram_app.add_handler(CommandHandler("cron_list", cmd_cron_list))
     telegram_app.add_handler(CommandHandler("cron_del", cmd_cron_del))
+
+    # Inline-button router (must come before generic message handlers).
+    telegram_app.add_handler(CallbackQueryHandler(callback_router))
 
     telegram_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     telegram_app.add_handler(

@@ -269,6 +269,28 @@ async def handle_message(
         return
     message_text = update.message.text
 
+    # If user is in the middle of /secret_add, treat this message as the value.
+    pending_name = _pending_secrets.pop(tg_user.id, None)
+    if pending_name is not None:
+        from app.services.secrets import set_secret, SecretsError
+        user_id = await _resolve_user(tg_user)
+        try:
+            await set_secret(user_id, pending_name, message_text)
+        except SecretsError as e:
+            await update.message.reply_text(f"❌ {e}")
+            return
+        # Try to delete the message containing the raw secret value.
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"🔐 บันทึก secret `{pending_name}` แล้ว (ค่าถูกเข้ารหัส)",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
     logger.info(f"Message from {tg_user.id} ({tg_user.username}): {message_text[:50]}...")
 
     await context.bot.send_chat_action(
@@ -290,6 +312,157 @@ async def handle_message(
         await update.message.reply_text(
             "ขออภัยค่ะ มีข้อผิดพลาดเกิดขึ้น 😔 ลองใหม่อีกครั้งนะคะ"
         )
+
+
+# ===== Skill / Draft / Secret Commands =====
+
+async def cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show source code of a skill: /skill <name>"""
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
+    if not context.args:
+        await update.message.reply_text("ใช้: `/skill <name>`", parse_mode=ParseMode.MARKDOWN)
+        return
+    from app.skills.registry import get_skill
+    skill = await get_skill(context.args[0].strip())
+    if skill is None:
+        await update.message.reply_text(f"ไม่เจอ skill `{context.args[0]}`", parse_mode=ParseMode.MARKDOWN)
+        return
+    header = (
+        f"🔧 *{skill.name}* v{skill.version} ({skill.status})\n"
+        f"_{skill.description}_\n"
+    )
+    body = f"```python\n{skill.code}\n```"
+    if len(header) + len(body) > 3800:
+        buf = BytesIO(skill.code.encode("utf-8"))
+        buf.name = f"{skill.name}.py"
+        await update.message.reply_text(header, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_document(document=buf, filename=f"{skill.name}.py")
+    else:
+        await update.message.reply_text(header + body, parse_mode=ParseMode.MARKDOWN)
+
+
+async def cmd_skill_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Dry-run a skill: /skill_test <name> <json_args>"""
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
+    if len(context.args or []) < 1:
+        await update.message.reply_text(
+            "ใช้: `/skill_test <name> [json_args]`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+    name = context.args[0]
+    try:
+        sample_args = json.loads(" ".join(context.args[1:])) if len(context.args) > 1 else {}
+    except json.JSONDecodeError as e:
+        await update.message.reply_text(f"JSON args ไม่ถูกต้อง: {e}")
+        return
+
+    from app.services.secrets import set_current_user, reset_current_user
+    from app.skills.registry import get_skill, compile_isolated
+    import time as _time
+
+    skill = await get_skill(name)
+    if skill is None:
+        await update.message.reply_text(f"ไม่เจอ skill `{name}`", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    user_id = await _resolve_user(update.effective_user)
+    try:
+        run = compile_isolated(skill)
+    except Exception as e:
+        await update.message.reply_text(f"❌ compile failed: {e}")
+        return
+
+    token = set_current_user(user_id)
+    started = _time.monotonic()
+    try:
+        result = await run(sample_args)
+    except Exception as e:
+        result = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        reset_current_user(token)
+    duration_ms = int((_time.monotonic() - started) * 1000)
+
+    out = json.dumps(result, ensure_ascii=False, indent=2, default=str)
+    if len(out) > 3500:
+        out = out[:3500] + "...[truncated]"
+    await update.message.reply_text(
+        f"⏱ {duration_ms}ms\n```json\n{out}\n```",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def cmd_drafts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """List skill drafts with inline approve/discard buttons."""
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    from app.skills.registry import list_drafts
+    drafts = await list_drafts()
+    if not drafts:
+        await update.message.reply_text("📝 ไม่มี draft รออนุมัติ")
+        return
+    for d in drafts:
+        warn = " ⚠️" if d.get("confirmation_required") else ""
+        text = f"*{d['name']}*{warn}\n_{d['description']}_"
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Approve", callback_data=f"approve_draft:{d['name']}"),
+            InlineKeyboardButton("👁 Code", callback_data=f"show_code:{d['name']}"),
+            InlineKeyboardButton("🗑 Discard", callback_data=f"discard_draft:{d['name']}"),
+        ]])
+        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+
+
+# Pending /secret_add waits for the next message as the value.
+_pending_secrets: dict[int, str] = {}
+
+
+async def cmd_secret_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/secret_add <name> — bot waits for next message as value."""
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
+    if not context.args:
+        await update.message.reply_text("ใช้: `/secret_add <NAME>`", parse_mode=ParseMode.MARKDOWN)
+        return
+    name = context.args[0].strip()
+    _pending_secrets[update.effective_user.id] = name
+    await update.message.reply_text(
+        f"🔐 ส่งค่าของ secret `{name}` ในข้อความถัดไป (จะลบทิ้งทันทีหลังเก็บ)",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def cmd_secret_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
+    from app.services.secrets import list_secret_names
+    user_id = await _resolve_user(update.effective_user)
+    names = await list_secret_names(user_id)
+    if not names:
+        await update.message.reply_text("🔐 ยังไม่มี secret\nเพิ่มด้วย `/secret_add NAME`", parse_mode=ParseMode.MARKDOWN)
+        return
+    body = "\n".join(f"• `{n}`" for n in names)
+    await update.message.reply_text(f"🔐 *Secrets*\n{body}", parse_mode=ParseMode.MARKDOWN)
+
+
+async def cmd_secret_del(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
+    if not context.args:
+        await update.message.reply_text("ใช้: `/secret_del <NAME>`", parse_mode=ParseMode.MARKDOWN)
+        return
+    from app.services.secrets import delete_secret
+    user_id = await _resolve_user(update.effective_user)
+    ok = await delete_secret(user_id, context.args[0].strip())
+    await update.message.reply_text("✅ ลบแล้ว" if ok else "❌ ไม่เจอ secret นี้")
 
 
 async def handle_photo(
