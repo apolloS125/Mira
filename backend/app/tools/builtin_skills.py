@@ -18,9 +18,11 @@ from app.tools.registry import register
 @register(
     name="create_skill",
     description=(
-        "Author a trivial skill the agent can call in future turns. "
-        "ONLY use this for skills that do NOT touch user data, accounts, or external APIs. "
-        "For anything that does, use `propose_skill` so the user can review the code first. "
+        "Author a skill. ALL new skills are saved as drafts and require explicit "
+        "owner approval via Telegram /drafts before they become callable. This "
+        "prevents prompt-injection attacks (a malicious web result cannot trick "
+        "the agent into auto-activating a backdoor skill). After calling this, "
+        "summarize the skill for the user and tell them to run /drafts to approve. "
         "Code MUST define `async def run(args: dict)`. Allowed imports: "
         "asyncio, datetime, json, math, re, statistics, textwrap, typing, "
         "urllib.parse, zoneinfo, httpx. Skills can also call `secrets.get('NAME')` "
@@ -38,18 +40,26 @@ from app.tools.registry import register
     },
 )
 async def _create_skill(args: dict):
-    skill = await skill_registry.upsert_skill(
-        name=args["name"],
-        description=args["description"],
-        parameters=args.get("parameters") or {"type": "object", "properties": {}},
-        code=args["code"],
-        author="agent",
-    )
+    """Now an alias for propose_skill — ALL skill creation goes through draft+approve."""
+    try:
+        skill = await skill_registry.save_draft(
+            name=args["name"],
+            description=args["description"],
+            parameters=args.get("parameters") or {"type": "object", "properties": {}},
+            code=args["code"],
+            author="agent",
+            confirmation_required=True,
+        )
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
     return {
         "ok": True,
         "name": skill.name,
-        "version": skill.version,
-        "message": f"Skill '{skill.name}' v{skill.version} saved and active.",
+        "draft": True,
+        "message": (
+            f"Draft '{skill.name}' saved. NOT yet callable. "
+            "Tell the user to run /drafts in Telegram to review and approve."
+        ),
     }
 
 

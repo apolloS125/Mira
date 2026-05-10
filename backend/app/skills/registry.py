@@ -48,6 +48,18 @@ _FORBIDDEN_DUNDERS = {
     "__code__", "__closure__", "__func__", "__self__", "__module__",
     "__init_subclass__", "__class_getitem__", "__reduce__", "__reduce_ex__",
     "__subclasshook__", "__init__", "__new__", "__call__",
+    "__build_class__",
+}
+
+# Builtins that defeat the sandbox (dynamic attribute access, eval, etc.).
+# Reject any Name reference to these. Dynamic getattr-by-string also rejected.
+_FORBIDDEN_NAMES = {
+    "getattr", "setattr", "delattr", "hasattr",
+    "vars", "globals", "locals", "dir",
+    "eval", "exec", "compile",
+    "open", "input", "breakpoint", "help",
+    "type", "object", "super", "classmethod", "staticmethod", "property",
+    "memoryview", "bytearray", "bytes",  # used to forge dunder strings
 }
 
 
@@ -71,6 +83,30 @@ class _SkillASTValidator(ast.NodeVisitor):
 
     def visit_Name(self, node: ast.Name) -> None:
         self._check(node.id, node)
+        if node.id in _FORBIDDEN_NAMES:
+            self.errors.append(
+                f"forbidden name '{node.id}' at line {getattr(node, 'lineno', '?')}"
+            )
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        # Block dynamic dunder construction: getattr(x, expr_or_concat).
+        # Already redundant given _FORBIDDEN_NAMES, but kept as defense in depth.
+        func = node.func
+        if isinstance(func, ast.Name) and func.id in {"getattr", "setattr", "delattr"}:
+            self.errors.append(
+                f"forbidden dynamic attribute access via {func.id}() at line {getattr(node, 'lineno', '?')}"
+            )
+        self.generic_visit(node)
+
+    def visit_BinOp(self, node: ast.BinOp) -> None:
+        # Block runtime string concat that targets a dunder, e.g. "_" + "_class__".
+        if isinstance(node.op, ast.Add):
+            for side in (node.left, node.right):
+                if isinstance(side, ast.Constant) and isinstance(side.value, str) and "__" in side.value:
+                    self.errors.append(
+                        f"forbidden dunder fragment in string concat at line {getattr(node, 'lineno', '?')}"
+                    )
         self.generic_visit(node)
 
     def visit_Constant(self, node: ast.Constant) -> None:

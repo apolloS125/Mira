@@ -5,6 +5,11 @@
 *.pem
 *.key
 secrets/
+backend/data/
+backend/mira.db
+backend/mira.db-journal
+backend/mira.db-wal
+backend/mira.db-shm
 
 # ===== Python =====
 __pycache__/

@@ -20,6 +20,10 @@ from app.channels.telegram.handlers import (
     cmd_forget,
     cmd_help,
     cmd_memory,
+    cmd_mem_drafts,
+    cmd_memory_list,
+    cmd_memory_set,
+    cmd_memory_show,
     cmd_secret_add,
     cmd_secret_del,
     cmd_secret_list,
@@ -58,6 +62,14 @@ def setup_bot_handlers() -> None:
     telegram_app.add_handler(CommandHandler("secret_add", cmd_secret_add))
     telegram_app.add_handler(CommandHandler("secret_list", cmd_secret_list))
     telegram_app.add_handler(CommandHandler("secret_del", cmd_secret_del))
+
+    # Deep memory (identity files)
+    for cmd in ("soul", "identity", "heartbeat", "user_md", "tools_md", "agent_md"):
+        telegram_app.add_handler(CommandHandler(cmd, cmd_memory_show))
+    telegram_app.add_handler(CommandHandler("soul_set", cmd_memory_set))
+    telegram_app.add_handler(CommandHandler("identity_set", cmd_memory_set))
+    telegram_app.add_handler(CommandHandler("memory_files", cmd_memory_list))
+    telegram_app.add_handler(CommandHandler("mem_drafts", cmd_mem_drafts))
 
     # Cron
     telegram_app.add_handler(CommandHandler("cron_add", cmd_cron_add))

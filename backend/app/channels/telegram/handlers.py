@@ -465,6 +465,99 @@ async def cmd_secret_del(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text("✅ ลบแล้ว" if ok else "❌ ไม่เจอ secret นี้")
 
 
+# ===== Deep memory (identity files) =====
+
+_MEM_FILE_BY_CMD = {
+    "soul": "SOUL.md",
+    "identity": "IDENTITY.md",
+    "heartbeat": "HEARTBEAT.md",
+    "user_md": "USER.md",
+    "tools_md": "TOOLS.md",
+    "agent_md": "AGENT.md",
+}
+
+
+async def cmd_memory_show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Generic dump for /soul /identity /heartbeat /user_md /tools_md /agent_md."""
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
+    cmd = (update.message.text or "").lstrip("/").split()[0].lower()
+    name = _MEM_FILE_BY_CMD.get(cmd)
+    if not name:
+        return
+    from app.services import deep_memory as dm
+    body = dm.read(name)
+    await update.message.reply_text(
+        f"```md\n{body}\n```",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def cmd_memory_set(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Owner-only edits for read-only files. Usage: /soul_set <full new body> ; /identity_set ..."""
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
+    cmd = (update.message.text or "").lstrip("/").split()[0].lower()
+    mapping = {"soul_set": "SOUL.md", "identity_set": "IDENTITY.md"}
+    name = mapping.get(cmd)
+    if not name:
+        return
+    raw = update.message.text or ""
+    _, _, body = raw.partition(" ")
+    body = body.strip()
+    if not body:
+        await update.message.reply_text(f"ใช้: `/{cmd} <new content>`", parse_mode=ParseMode.MARKDOWN)
+        return
+    from app.services import deep_memory as dm
+    try:
+        await dm.write(name, body, allow_read_only=True)
+        await update.message.reply_text(f"✅ {name} updated")
+    except Exception as e:
+        await update.message.reply_text(f"❌ {e}")
+
+
+async def cmd_mem_drafts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """List pending proposed edits to SOUL/IDENTITY with approve/discard buttons."""
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    from app.services import deep_memory as dm
+    pending = dm.list_proposed_edits()
+    if not pending:
+        await update.message.reply_text("ไม่มี proposed edits")
+        return
+    for name, body in pending.items():
+        preview = body if len(body) < 1500 else body[:1500] + "…[truncated]"
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Approve", callback_data=f"approve_mem:{name}"),
+            InlineKeyboardButton("🗑 Discard", callback_data=f"discard_mem:{name}"),
+        ]])
+        await update.message.reply_text(
+            f"*Proposed change to {name}*\n```md\n{preview}\n```",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=kb,
+        )
+
+
+async def cmd_memory_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user):
+        await _reject(update)
+        return
+    from app.services import deep_memory as dm
+    lines = []
+    for f in dm.FILES:
+        try:
+            size = len(dm.read(f).encode("utf-8"))
+        except Exception:
+            size = 0
+        lock = "🔒" if f in dm.READ_ONLY else "✏️"
+        lines.append(f"{lock} *{f}* — {size}B")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+
+
 async def handle_photo(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,

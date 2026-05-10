@@ -13,3 +13,4 @@ from app.tools import builtin_skills  # noqa: F401
 from app.tools import builtin_connect  # noqa: F401
 from app.tools import builtin_cron  # noqa: F401
 from app.tools import builtin_secrets  # noqa: F401
+from app.tools import builtin_deep_memory  # noqa: F401

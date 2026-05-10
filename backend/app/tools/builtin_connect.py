@@ -18,6 +18,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 from app.skills import registry as skill_registry
+from app.tools.builtin_http import _validate_url
 from app.tools.registry import register
 
 ALLOWED_METHODS = {"get", "post", "put", "patch", "delete"}
@@ -146,6 +147,8 @@ async def run(args):
 
 
 async def _fetch_spec(client: httpx.AsyncClient, candidate: str) -> tuple[str, dict] | None:
+    if _validate_url(candidate):
+        return None
     try:
         resp = await client.get(candidate)
         if resp.status_code == 200:
@@ -195,6 +198,9 @@ async def _fetch_spec(client: httpx.AsyncClient, candidate: str) -> tuple[str, d
 )
 async def _connect(args: dict):
     url = args["openapi_url"]
+    err = _validate_url(url)
+    if err:
+        return {"ok": False, "error": f"openapi_url rejected: {err}"}
     prefix = _slugify(args.get("prefix") or "api")
     max_ops = int(args.get("max_ops") or 10)
     include_mutations = bool(args.get("include_mutations", True))
@@ -202,7 +208,8 @@ async def _connect(args: dict):
 
     spec: dict | None = None
     spec_url = url
-    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+    # follow_redirects disabled so attacker cannot redirect to internal IPs.
+    async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
         # Try the URL directly first.
         try:
             resp = await client.get(url)
@@ -237,6 +244,11 @@ async def _connect(args: dict):
             base_url = urlunsplit((parts.scheme, parts.netloc, "", "", ""))
     if not base_url:
         return {"ok": False, "error": "no base_url (spec has no servers, none provided)"}
+    # Validate base_url to prevent the spec from coercing drafted skills toward
+    # internal IPs (cloud metadata, LiteLLM proxy, Redis, Qdrant, etc.).
+    base_err = _validate_url(base_url)
+    if base_err:
+        return {"ok": False, "error": f"base_url rejected: {base_err}"}
 
     auth_header, auto_secret = _detect_auth(spec)
     secret_name = secret_override or auto_secret

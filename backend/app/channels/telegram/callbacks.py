@@ -71,6 +71,22 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.message.reply_text(body, parse_mode=ParseMode.MARKDOWN)
         return
 
+    if action == "approve_mem":
+        from app.services.deep_memory import approve_proposed_edit
+        ok = await approve_proposed_edit(arg)
+        await query.answer("✅ Applied" if ok else "Not found", show_alert=not ok)
+        if ok:
+            await query.edit_message_text(f"✅ Updated *{arg}*", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    if action == "discard_mem":
+        from app.services.deep_memory import discard_proposed_edit
+        ok = discard_proposed_edit(arg)
+        await query.answer("🗑 Discarded" if ok else "Not found", show_alert=not ok)
+        if ok:
+            await query.edit_message_text(f"🗑 Discarded edit to *{arg}*", parse_mode=ParseMode.MARKDOWN)
+        return
+
     if action == "disable_skill":
         from app.skills.registry import disable_skill
         ok = await disable_skill(arg)
