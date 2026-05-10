@@ -85,7 +85,7 @@ async def node_agent_loop(state: AgentState) -> AgentState:
             tools=tools_schema or None,
             tool_choice="auto" if tools_schema else None,
             max_tokens=1200,
-            temperature=0.5,
+            temperature=1,
             api_base=settings.moonshot_api_base,
             api_key=settings.litellm_proxy_key or settings.moonshot_api_key,
             metadata={
